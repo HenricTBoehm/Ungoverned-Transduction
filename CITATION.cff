@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "Please cite the exact version of this independent research note."
+title: "Ungoverned Transduction: When AI-Enabled Effects Outrun Authority"
+version: "0.3.1"
+authors:
+  - family-names: "Böhm"
+    given-names: "Henric T."
+    orcid: "https://orcid.org/0009-0005-0349-6341"
+abstract: >-
+  Independent conceptual research note distinguishing absent effects, ungoverned effects,
+  admissible transitions, and positive value; with eight deterministic synthetic finite cases.
+keywords:
+  - AI governance
+  - ungoverned transduction
+  - workflow authorization
+  - PADC
