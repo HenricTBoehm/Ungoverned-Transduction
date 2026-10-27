@@ -1,0 +1,92 @@
+name: Build and verify Concept Note PDF
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "paper/*.tex"
+      - ".github/workflows/build-paper.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out research source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Install TeX and PDF verification tools
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            texlive-latex-base texlive-latex-recommended \
+            texlive-latex-extra fonts-lmodern poppler-utils
+
+      - name: Reproduce synthetic finite-case model
+        shell: bash
+        run: |
+          set -euo pipefail
+          tdir="$(mktemp -d)"
+          cp reproduction/UT_v0_2_finite_model.py "$tdir/"
+          python3 "$tdir/UT_v0_2_finite_model.py" > "$tdir/stdout.txt"
+          cmp reproduction/UT_v0_2_finite_cases.csv "$tdir/UT_v0_2_finite_cases.csv"
+          sed '/^CSV: /d' "$tdir/stdout.txt" | cmp - reproduction/UT_v0_3_expected_stdout.txt
+
+      - name: Verify imported non-PDF original file checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -v 'paper/.*\.pdf$' SHA256SUMS.txt | sha256sum -c -
+
+      - name: Build the nine-page PDF from versioned LaTeX
+        shell: bash
+        run: |
+          set -euo pipefail
+          src="paper/OTAA_PADC_Concept_Note_Ungoverned_Transduction_v0_3_1_EN.tex"
+          for pass in 1 2; do
+            pdflatex -interaction=nonstopmode -halt-on-error \
+              -output-directory=paper "$src" > "/tmp/ut-pdflatex-${pass}.log"
+          done
+          pdf="${src%.tex}.pdf"
+          test -s "$pdf"
+          pdfinfo "$pdf" | grep '^Pages:[[:space:]]*9$'
+          pdftotext "$pdf" - | grep -q 'Ungoverned Transduction'
+
+      - name: Rebind PDF checksum to this exact compiled artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib
+          path = Path('paper/OTAA_PADC_Concept_Note_Ungoverned_Transduction_v0_3_1_EN.pdf')
+          digest = hashlib.sha256(path.read_bytes()).hexdigest()
+          manifest = Path('SHA256SUMS.txt')
+          lines = manifest.read_text().splitlines()
+          matched = False
+          for i, line in enumerate(lines):
+              if line.endswith('  ' + str(path)):
+                  lines[i] = digest + '  ' + str(path)
+                  matched = True
+          assert matched, 'PDF manifest entry not found'
+          manifest.write_text('\n'.join(lines) + '\n')
+          print('Compiled PDF SHA256:', digest)
+          PY
+          sha256sum -c SHA256SUMS.txt
+
+      - name: Commit exact CI-generated PDF and updated manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add paper/OTAA_PADC_Concept_Note_Ungoverned_Transduction_v0_3_1_EN.pdf SHA256SUMS.txt
+          if ! git diff --cached --quiet; then
+            git commit -m "build: publish reproducible v0.3.1 PDF and checksum"
+            git push origin HEAD:main
+          fi
